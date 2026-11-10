@@ -118,10 +118,12 @@ function verifyToken(req,res){
 }
 
 /*
-* code segment below deal with encrypting tokens such that they cant be replicated by users. selected algorithm is AES-256, a staple symmetric algorithm
+* code segment below deal with encrypting tokens such that they cant be replicated by users. selected algorithm is AES-256, a staple symmetric algorithm.
+* Meanwhile above, token functions originally written by me(nikolas) and adapted to fit the token encryption functions.
+* creating key at server startup means that between server resets, old tokens get invalidated and users get logged out, very secure for when you're implementing security patches in the future
+* functions adapted from: https://article.arunangshudas.com/top-10-node-js-libraries-for-data-encryption-d77a09a90d4b
+* -Nikolas Misins
 */
-
-//creating key at server startup means that between server resets, old tokens get invalidated and users get logged out, very secure for when you're implementing security patches in the future
 const algorithm = 'aes-256-cbc';
 var tokenEncryptKey = crypto.randomBytes(32);
 var iv = crypto.randomBytes(16);
