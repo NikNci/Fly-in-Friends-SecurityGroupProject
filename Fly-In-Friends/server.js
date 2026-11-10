@@ -7,6 +7,7 @@ const convertLocationToCoords = require("./locationConversion");
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 const app = express();
+const crypto = require("crypto");
 app.use(express.static("public"));
 app.use(express.json());
 app.use(cookieParser());
@@ -25,7 +26,7 @@ app.set('view engine', 'ejs');
 const { loadEnvFile } = require("node:process");
 loadEnvFile("secretData.env");
 const dbURI = process.env.APIK;
-const tokenKey = process.env.tokenKey;
+const tokenKey = process.env.tokenKey; //for signing tokens
 
 mongoose.connect(dbURI)
   .then(() => console.log("Connected to Fly-in-Friends database"))
@@ -84,32 +85,60 @@ const Message = mongoose.model("Message", messageSchema);
 
 function createNewToken(user, res) {
   let tokenPayload = { userId: user._id, "username": user.username };
-  const token = jwt.sign(tokenPayload, tokenKey, { expiresIn: "20m" });
+  var token = jwt.sign(tokenPayload, tokenKey, { expiresIn: "20m" });
+  token = encryptToken(token);
   res.cookie("session", token, { httpOnly: true });
 }
 
 function refreshToken(req,res){
-  const token = req.cookies.session;
+  var token = req.cookies.session;
+  token = decryptToken(token);
   const originalDecoded = jwt.decode(token, {complete: true});
   const id = originalDecoded.payload.userId;
   const username = originalDecoded.payload.username;
-  const newToken = jwt.sign({userId:id,username},tokenKey,{expiresIn:"20m"});
+  var newToken = jwt.sign({userId:id,username},tokenKey,{expiresIn:"20m"});
+  newToken = encryptToken(newToken);
   res.cookie("session", newToken, { httpOnly: true });
 }
 
 function verifyToken(req,res){
-  const token = req.cookies.session;
+  var token = req.cookies.session;
   if (!token){
     //missing token
     return false;
   }
   try {
     //if this verify doesnt pass(token isnt valid), code goes straight to catch case.
+    token = decryptToken(token);
     const decoded = jwt.verify(token, tokenKey);
     return decoded;
   } catch (err){
     return false;
   }
+}
+
+/*
+* code segment below deal with encrypting tokens such that they cant be replicated by users. selected algorithm is AES-256, a staple symmetric algorithm
+*/
+
+//creating key at server startup means that between server resets, old tokens get invalidated and users get logged out, very secure for when you're implementing security patches in the future
+const algorithm = 'aes-256-cbc';
+var tokenEncryptKey = crypto.randomBytes(32);
+var iv = crypto.randomBytes(16);
+
+function encryptToken(tokenJSON) {
+  const cipher = crypto.createCipheriv(algorithm, tokenEncryptKey, iv);
+  tokenJSON = JSON.stringify(tokenJSON);
+  let encrypted = cipher.update(tokenJSON, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return encrypted;
+}
+
+function decryptToken(encryptedToken) {
+  const decipher = crypto.createDecipheriv(algorithm, tokenEncryptKey, iv);
+  let decrypted = decipher.update(encryptedToken, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return JSON.parse(decrypted);
 }
 
 /************************* GET FUNCTIONS, ROUTING ***********************************/
@@ -139,7 +168,6 @@ app.get("/profile-page", (req, res) => {
 // getting the data from the json 
 
 app.get("/profile", async (req, res) => {
-  console.log("GET /profile route hit");
   const decoded = verifyToken(req);
   if (!decoded) return res.status(401).json({ error: "Unauthorized" });
 
