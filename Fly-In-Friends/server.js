@@ -24,6 +24,10 @@ app.set('view engine', 'ejs');
 
 const { loadEnvFile } = require("node:process");
 loadEnvFile("secretData.env");
+//import AES encryption and decryption functions
+const { encryptAES, decryptAES } = require("./aesEncryption");
+//import Caesar cipher encryption and decryption
+const { encryptCaesar, decryptCaesar } = require("./caesarCipher");
 const dbURI = process.env.APIK;
 const tokenKey = process.env.tokenKey;
 
@@ -417,8 +421,19 @@ app.post("/add-listing", async (req, res) => {
     const token = req.cookies.session;
     const originalDecoded = jwt.decode(token, {complete: true});
     const Uid = originalDecoded.payload.userId;
+
+    //encrypt the location using AES
+    const encryptedLocationData = encryptAES(location);
+    // encrypt the activity using caesar cipher
+    const encryptedActivityData = encryptCaesar(activity);
     //creates  a new lsiting document including both text details and coordinates
     const newListing = new Listing({
+      //store encrypted locartion and aes decryption info
+      encryptedLocation: encryptedLocationData.encrypted,
+      locationIv: encryptedLocationData.iv,
+      locationAuthTag: encryptedLocationData.authTag,
+      //store encrypted activity
+      encryptedActivity: encryptedActivityData,
       title,
       location,
       activity,
