@@ -21,7 +21,7 @@ const listingSchema = new mongoose.Schema({
     },
 
     //stores the IV needed for AES decryption
-    locationIV:{
+    locationIv:{
         type: String
     },
 

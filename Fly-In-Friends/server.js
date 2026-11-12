@@ -208,12 +208,36 @@ app.get("/listings", async function (req, res) {
     refreshToken(req, res);
     try {
       const listings = await Listing.find();
+      //Decrypt the location and activity for each listing
+      const decryptedListings = listings.map((listing) => {
+        const data = listing.toObject();
 
+        //decrypt the location using AES
+        if(data.encryptedLocation && data.locationIv && data.locationAuthTag){
+          data.location = decryptAES({
+            encrypted: data.encryptedLocation,
+            iv:data.locationIv,
+            authTag: data.locationAuthTag
+
+          });
+
+        }
+
+        //decrypt the activity using caesar cipher
+        if(data.encryptedActivity){
+          data.activity = decryptCaesar(data.encryptedActivity);
+        }
+
+        return data;
+
+      });
+      
       // add username of the creator for each listing
-      const listingsWithUser = await Promise.all(listings.map(async (listing) => {
+      const listingsWithUser = await
+       Promise.all(decryptedListings.map(async (listing) => {
         const user = await User.findOne({ _id: listing.userId });
         return {
-          ...listing._doc, 
+          ...listing, 
           username: user ? user.username : "Unknown User"
         };
       }));
@@ -223,7 +247,8 @@ app.get("/listings", async function (req, res) {
       console.error(error);
       res.status(500).send("Error loading listings page");
     }
-  } else {
+    
+    } else {
     res.render("403")
   }
 });//--look back at this//
