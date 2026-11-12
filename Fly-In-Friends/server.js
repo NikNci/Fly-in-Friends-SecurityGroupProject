@@ -260,7 +260,32 @@ app.get("/map", async function (req, res) {
     refreshToken(req,res);
     try {
       const listings = await Listing.find();
-      res.render("map", { listings });
+      
+      //decrypts lsiting before sending it to the map
+      const decryptedListings = listings.map((listing) =>{
+        const data = listing.toObject();
+
+      
+
+      //decrypts location using AES
+      if(data.encryptedLocation && data.locationIv && data.locationAuthTag){
+        data.location = decryptAES({
+          encrypted: data.encryptedLocation,
+          iv: data.locationIv,
+          authTag: data.locationAuthTag
+        });
+      }
+
+      //decrypts the activity using Caesar
+      if(data.encryptedActivity){
+        data.activity = decryptCaesar(data.encryptedActivity);
+      }
+      return data;
+      });
+
+    //send the decrypted lsiting to map
+    res.render("map",{listings: decryptedListings});
+
     } catch (error) {
       console.error(error);
       res.status(500).send("Error loading map page");
@@ -460,8 +485,6 @@ app.post("/add-listing", async (req, res) => {
       //store encrypted activity
       encryptedActivity: encryptedActivityData,
       title,
-      location,
-      activity,
       latitude: coords.latitude,
       longitude: coords.longitude,
       userId: Uid

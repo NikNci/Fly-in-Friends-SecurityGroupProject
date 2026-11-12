@@ -8,11 +8,11 @@ const listingSchema = new mongoose.Schema({
     },
     location: {
         type: String,
-        required: true
+        
     },
     activity:{
         type: String,
-        required: true
+        
     },
 
     //stores the location encrypoted using AES
