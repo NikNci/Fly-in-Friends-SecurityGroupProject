@@ -18,8 +18,6 @@ require("node:dns/promises").setServers(["1.1.1.1", "8.8.8.8"]);
 
 const { loadEnvFile } = require("node:process");
 
-const crypto = require('crypto');
-
 loadEnvFile("secretData.env"); 
 
 const EMAIL_KEY = Buffer.from(process.env.CRYPTO_KEY, "hex");
