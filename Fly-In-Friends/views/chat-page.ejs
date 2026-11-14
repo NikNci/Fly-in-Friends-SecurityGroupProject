@@ -49,6 +49,7 @@
   
       const otherUserId = <%- JSON.stringify(otherUserId !== undefined ? otherUserId : null) %>;
     const otherUsername = <%- JSON.stringify(otherUsername || '') %>; //error on this is not a problem think its a vs issue
+    const conversationKey = "KEY";
     
   console.log("otherUserId:", otherUserId, "otherUsername:", otherUsername);
 
@@ -63,62 +64,71 @@
     }
 
     //Encryption and decryption. Using the vigenere cipher to sendning messages through the chat
-    function encryptVigenere(message, key){  //encryption
-        key = key.toUpperCase();
+    
+function encryptVigenere(message, key) { //encrytion using the vigenere cipher
+    key = key.toUpperCase().replace(/[^A-Z]/g, "");// removes anything that isnt a letter
 
-        if(!key)
-        throw new Error("Invalid key");
-        
-        let result = "";
-        let indexKey = 0;
+    if (!key) {
+        throw new Error("Invalid encryption key");
+    }
 
-        for(let char of message.toUpperCase()){
-            if(char >= "A" && char <= Z){
-                const messageCode = char.charCode(0) - 65; //subtracting 65 as the cipher uses numbers from 1 -  25
-                const keyCode = key.charCodeAt(keyIndex % key.length) -65; //converst the letter to a number
-                result += String.fromCharCode(
-                    ((messageCode + keyCode) % 26) + 65 // makes sure the number doesnt go past 25 so it wraps back to beginning of the alphabet 
+    let result = "";
+    let keyIndex = 0;
 
-                  );
+    for (let char of message.toUpperCase()) {
+        if (char >= "A" && char <= "Z") {
 
-                  keyIndex++;
+            const messageCode = char.charCodeAt(0) - 65; //the cipher only numbers from 1 -15 , whichi s why im subtracting 65 
 
-            
-            }else{
-                result += char;
-            }
+            const keyCode = key.charCodeAt(keyIndex % key.length) - 65; //get the next letter from the keyword and converts into number
 
+            result += String.fromCharCode( //converts back to the letter 
+                ((messageCode + keyCode) % 26) + 65 
+            );
+
+            keyIndex++;
+
+        } else {
+            result += char;
         }
-        return result;
     }
 
-    function decryptVigenere(cipherText, key){  //decryption for the vigenere cipher
-        key = key.toUpperCase();
-
-        if(!key)
-        throw new Error("Invalid decryption");
-
-        let result = "";
-        let indexKey = 0;
-
-         for(let char of message.toUpperCase()){
-            if(char >= "A" && char <= Z){
-                const cipherText = char.charCode(0) - 65; 
-                const keyCode = key.charCodeAt(keyIndex % key.length) -65; 
-                result += String.fromCharCode(
-                    ((cipherText + keyCode) % 26) + 65 
-
-                    
-                  );
-                  keyIndex++;
-
-    }else{
-        result =+ char;
-
-    }
-}
     return result;
+}
+
+
+    
+function decryptVigenere(cipherText, key) {
+    key = key.toUpperCase();
+
+    if (!key) {
+        throw new Error("Invalid decryption key");
     }
+
+    let result = "";
+    let keyIndex = 0;
+
+    for (let char of cipherText.toUpperCase()) {
+        if (char >= "A" && char <= "Z") {
+
+            const cipherCode = char.charCodeAt(0) - 65;
+
+            const keyCode =key.charCodeAt(keyIndex % key.length) - 65;
+
+            result += String.fromCharCode(
+                ((cipherCode - keyCode + 26) % 26) + 65
+            );
+
+            keyIndex++;
+
+        } else {
+            result += char;
+        }
+    }
+
+    return result;
+}
+
 
 
     // Function for  fetching the messages
@@ -137,7 +147,11 @@
                 } else {
                     div.classList.add("sent");
                 }
-                div.textContent = msg.content;
+                div.textContent = decryptVigenere(
+                    msg.content,
+                    conversationKey
+
+                );
                 messagesContainer.appendChild(div);
             });
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -159,11 +173,20 @@
         const content = input.value.trim();
         if (!content) return;
 
+        const encryptedContent = encryptVigenere(
+            content,
+            conversationKey
+        );
+
+        console.log("The encrypyted message :, " , encryptedContent);
+
         try {
             const res = await fetch("/send-message", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ receiverId: otherUserId, content })
+                body: JSON.stringify({ receiverId: otherUserId, 
+                    content: encryptedContent
+                 })
             });
 
             const text = await res.text();
