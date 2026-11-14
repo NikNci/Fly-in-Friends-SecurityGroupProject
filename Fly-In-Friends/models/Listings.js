@@ -8,19 +8,40 @@ const listingSchema = new mongoose.Schema({
     },
     location: {
         type: String,
-        required: true
+        
     },
     activity:{
         type: String,
-        required: true
+        
     },
+
+    //stores the location encrypoted using AES
+    encryptedLocation:{
+        type: String
+    },
+
+    //stores the IV needed for AES decryption
+    locationIv:{
+        type: String
+    },
+
+    ////stores the authentication tag for AES
+    locationAuthTag:{
+        type: String
+    },
+
+    //stores the activity encrypted using Caesar cipher
+    encryptedActivity:{
+        type: String
+    },
+        
     latitude:{
         type: Number,
         required: true
     },
     longitude:{
         type: Number,
-        requiured:true
+        required:true
     },
     createdAt:{
         type: Date,
@@ -33,3 +54,4 @@ const listingSchema = new mongoose.Schema({
 
 });
 module.exports = mongoose.model("Listings", listingSchema);
+

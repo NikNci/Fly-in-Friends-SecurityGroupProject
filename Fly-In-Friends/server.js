@@ -1,6 +1,6 @@
 // argon2 is a password hashing that is designed to resist gpu attacks and is considered to be one of the most secured password hashing algorithm
 // https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
-// https://www.npmjs.com/package/argon2
+// https://www.npmjs.com/package/argon2 - Vincent
 const argon2 = require('argon2');
 const express = require('express');
 const mongoose = require('mongoose');
@@ -10,6 +10,10 @@ const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 const app = express();
 const crypto = require("crypto");
+//import AES encryption and decryption functions - Ryan
+const { encryptAES, decryptAES } = require("./aesEncryption");
+//import Caesar cipher encryption and decryption - Ryan
+const { encryptCaesar, decryptCaesar } = require("./caesarCipher");
 app.use(express.static("public"));
 app.use(express.json());
 app.use(cookieParser());
@@ -278,12 +282,36 @@ app.get("/listings", async function (req, res) {
     refreshToken(req, res);
     try {
       const listings = await Listing.find();
+      //Decrypt the location and activity for each listing
+      const decryptedListings = listings.map((listing) => {
+        const data = listing.toObject();
 
+        //decrypt the location using AES
+        if(data.encryptedLocation && data.locationIv && data.locationAuthTag){
+          data.location = decryptAES({
+            encrypted: data.encryptedLocation,
+            iv:data.locationIv,
+            authTag: data.locationAuthTag
+
+          });
+
+        }
+
+        //decrypt the activity using caesar cipher
+        if(data.encryptedActivity){
+          data.activity = decryptCaesar(data.encryptedActivity);
+        }
+
+        return data;
+
+      });
+      
       // add username of the creator for each listing
-      const listingsWithUser = await Promise.all(listings.map(async (listing) => {
+      const listingsWithUser = await
+       Promise.all(decryptedListings.map(async (listing) => {
         const user = await User.findOne({ _id: listing.userId });
         return {
-          ...listing._doc, 
+          ...listing, 
           username: user ? user.username : "Unknown User"
         };
       }));
@@ -293,7 +321,8 @@ app.get("/listings", async function (req, res) {
       console.error(error);
       res.status(500).send("Error loading listings page");
     }
-  } else {
+    
+    } else {
     res.render("403")
   }
 });//--look back at this//
@@ -305,7 +334,32 @@ app.get("/map", async function (req, res) {
     refreshToken(req,res);
     try {
       const listings = await Listing.find();
-      res.render("map", { listings });
+      
+      //decrypts lsiting before sending it to the map
+      const decryptedListings = listings.map((listing) =>{
+        const data = listing.toObject();
+
+      
+
+      //decrypts location using AES
+      if(data.encryptedLocation && data.locationIv && data.locationAuthTag){
+        data.location = decryptAES({
+          encrypted: data.encryptedLocation,
+          iv: data.locationIv,
+          authTag: data.locationAuthTag
+        });
+      }
+
+      //decrypts the activity using Caesar
+      if(data.encryptedActivity){
+        data.activity = decryptCaesar(data.encryptedActivity);
+      }
+      return data;
+      });
+
+    //send the decrypted lsiting to map
+    res.render("map",{listings: decryptedListings});
+
     } catch (error) {
       console.error(error);
       res.status(500).send("Error loading map page");
@@ -493,11 +547,20 @@ app.post("/add-listing", async (req, res) => {
     const token = req.cookies.session;
     const originalDecoded = jwt.decode(token, {complete: true});
     const Uid = originalDecoded.payload.userId;
+
+    //encrypt the location using AES
+    const encryptedLocationData = encryptAES(location);
+    // encrypt the activity using caesar cipher
+    const encryptedActivityData = encryptCaesar(activity);
     //creates  a new lsiting document including both text details and coordinates
     const newListing = new Listing({
+      //store encrypted locartion and aes decryption info
+      encryptedLocation: encryptedLocationData.encrypted,
+      locationIv: encryptedLocationData.iv,
+      locationAuthTag: encryptedLocationData.authTag,
+      //store encrypted activity
+      encryptedActivity: encryptedActivityData,
       title,
-      location,
-      activity,
       latitude: coords.latitude,
       longitude: coords.longitude,
       userId: Uid
