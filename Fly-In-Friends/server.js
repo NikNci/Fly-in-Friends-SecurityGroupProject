@@ -1,45 +1,88 @@
-
+// argon2 is a password hashing that is designed to resist gpu attacks and is considered to be one of the most secured password hashing algorithm
+// https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
+// https://www.npmjs.com/package/argon2 - Vincent
+const argon2 = require('argon2');
 const express = require('express');
 const mongoose = require('mongoose');
-const bcrypt = require("bcrypt");
 const Listing = require("./models/Listings.js");
 const convertLocationToCoords = require("./locationConversion");
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 const app = express();
+const crypto = require("crypto");
+//import AES encryption and decryption functions - Ryan
+const { encryptAES, decryptAES } = require("./aesEncryption");
+//import Caesar cipher encryption and decryption - Ryan
+const { encryptCaesar, decryptCaesar } = require("./caesarCipher");
 app.use(express.static("public"));
 app.use(express.json());
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
 require("node:dns/promises").setServers(["1.1.1.1", "8.8.8.8"]);
 
-
-
-// Views engine
-app.set('view engine', 'ejs');
-
-/*
-* to import a variable from .env file, use     x = process.env.{VARIABLENAME};
-*/
-
 const { loadEnvFile } = require("node:process");
-loadEnvFile("secretData.env");
-//import AES encryption and decryption functions
-const { encryptAES, decryptAES } = require("./aesEncryption");
-//import Caesar cipher encryption and decryption
-const { encryptCaesar, decryptCaesar } = require("./caesarCipher");
+
+loadEnvFile("secretData.env"); 
+
+const EMAIL_KEY = Buffer.from(process.env.CRYPTO_KEY, "hex");
+
+// this encrypts the email before it is saved to the database, making it unreadable to anyone who gains access to it
+
+// https://nodejs.org/api/crypto.html
+function encryptData(text) {
+  // generates random crypto bytes for encryption
+  const iv = crypto.randomBytes(12);
+  //uses aes-256-gcm for encryption
+  const cipher = crypto.createCipheriv('aes-256-gcm', EMAIL_KEY, iv);
+  // encrypts the text and converts it to hex format
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  //encripts the final block of data and converts it to hex format
+  encrypted += cipher.final('hex');
+  //gets the authentication tag for the encrypted data and converts it to hex format
+  const authTag = cipher.getAuthTag().toString('hex');
+  //returns the iv, authTag, and encrypted data as a single string separated by colons
+  return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+}
+//this decrypts the email so it can be shown on the pf, if it fails it will return it as a string
+function decryptData(encryptedText) {
+  try {
+    //splits it into the iv, authTag, and encrypted data
+    const parts = encryptedText.split(':');
+    //converts the iv and authTag from hex to buffer
+    const iv = Buffer.from(parts[0], 'hex');
+    //converts the authTag from hex to buffer
+    const authTag = Buffer.from(parts[1], 'hex');
+    //gets the encrypted data
+    const encrypted = parts[2];
+    //uses aes-256-gcm for decryption
+    const decipher = crypto.createDecipheriv('aes-256-gcm', EMAIL_KEY, iv);
+    //sets the authentication tag for the decipher
+    decipher.setAuthTag(authTag);
+    //decrypts the encrypted data and converts it to utf8 format
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    //decrypts the final block of data and converts it to utf8 format
+    decrypted += decipher.final('utf8');
+    //returns the decrypted data
+    return decrypted;
+    //if it fails it will return a string that says encrypted
+  } catch (err) {
+    return "[Encrypted]";
+  }
+}
+
+loadEnvFile("secretData.env"); 
 const dbURI = process.env.APIK;
-const tokenKey = process.env.tokenKey;
+const tokenKey = process.env.tokenKey; //for signing tokens
 
 mongoose.connect(dbURI)
   .then(() => console.log("Connected to Fly-in-Friends database"))
   .catch(err => console.error("Database connection error:", err));
 
-  // Using this function to parse the id from a query 
-function parseUserId(id) {
-  const num = parseInt(id);
-  return isNaN(num) ? null : num;
-}
+app.set('view engine', 'ejs');
+
+/*
+* to import a variable from .env file, use     x = process.env.{VARIABLENAME};
+*/
 
 
 // The db structure
@@ -88,32 +131,62 @@ const Message = mongoose.model("Message", messageSchema);
 
 function createNewToken(user, res) {
   let tokenPayload = { userId: user._id, "username": user.username };
-  const token = jwt.sign(tokenPayload, tokenKey, { expiresIn: "20m" });
+  var token = jwt.sign(tokenPayload, tokenKey, { expiresIn: "20m" });
+  token = encryptToken(token);
   res.cookie("session", token, { httpOnly: true });
 }
 
 function refreshToken(req,res){
-  const token = req.cookies.session;
+  var token = req.cookies.session;
+  token = decryptToken(token);
   const originalDecoded = jwt.decode(token, {complete: true});
   const id = originalDecoded.payload.userId;
   const username = originalDecoded.payload.username;
-  const newToken = jwt.sign({userId:id,username},tokenKey,{expiresIn:"20m"});
+  var newToken = jwt.sign({userId:id,username},tokenKey,{expiresIn:"20m"});
+  newToken = encryptToken(newToken);
   res.cookie("session", newToken, { httpOnly: true });
 }
 
 function verifyToken(req,res){
-  const token = req.cookies.session;
+  var token = req.cookies.session;
   if (!token){
     //missing token
     return false;
   }
   try {
     //if this verify doesnt pass(token isnt valid), code goes straight to catch case.
+    token = decryptToken(token);
     const decoded = jwt.verify(token, tokenKey);
     return decoded;
   } catch (err){
     return false;
   }
+}
+
+/*
+* code segment below deal with encrypting tokens such that they cant be replicated by users. selected algorithm is AES-256, a staple symmetric algorithm.
+* Meanwhile above, token functions originally written by me(nikolas) and adapted to fit the token encryption functions.
+* creating key at server startup means that between server resets, old tokens get invalidated and users get logged out, very secure for when you're implementing security patches in the future
+* functions adapted from: https://article.arunangshudas.com/top-10-node-js-libraries-for-data-encryption-d77a09a90d4b
+* -Nikolas Misins
+*/
+const algorithm = 'aes-256-cbc';
+var tokenEncryptKey = crypto.randomBytes(32);
+var iv = crypto.randomBytes(16);
+
+function encryptToken(tokenJSON) {
+  const cipher = crypto.createCipheriv(algorithm, tokenEncryptKey, iv);
+  tokenJSON = JSON.stringify(tokenJSON);
+  let encrypted = cipher.update(tokenJSON, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return encrypted;
+}
+
+function decryptToken(encryptedToken) {
+  const decipher = crypto.createDecipheriv(algorithm, tokenEncryptKey, iv);
+  let decrypted = decipher.update(encryptedToken, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return JSON.parse(decrypted);
 }
 
 /************************* GET FUNCTIONS, ROUTING ***********************************/
@@ -143,7 +216,6 @@ app.get("/profile-page", (req, res) => {
 // getting the data from the json 
 
 app.get("/profile", async (req, res) => {
-  console.log("GET /profile route hit");
   const decoded = verifyToken(req);
   if (!decoded) return res.status(401).json({ error: "Unauthorized" });
 
@@ -159,6 +231,8 @@ app.get("/profile", async (req, res) => {
     res.json({
       username: user ? user.username : "",
       age: profile.age || null,
+      // decrpts the email so it can be displayed on the pf page, is its not found it will resturn a string that encrypted
+      email: user ? decryptData(user.email) : "",
       location: profile.location || "",
       interests: profile.interests || [],
       plans: profile.plans || [],
@@ -358,8 +432,9 @@ app.get("/messages/:userId", async (req, res) => {//fetches the chat history dat
         { sender: otherUserId, receiver: currentUserId }
       ]
     }).sort({ timestamp: 1 });//takes the two users messages from the db
- 
+
     res.json(messages);//returns in json
+    
   } catch (err) {
     console.error(err);
     res.status(500).send("Error loading messages");
@@ -426,9 +501,10 @@ app.post('/register', async (req, res) => {
     while (await User.findOne({ userId })){
       userId = Math.floor(Math.random() * 10000);
     }
-
-    const hash = await bcrypt.hash(password, 10);
-    const newUser = new User({ username: name, email, password: hash, role, _id: userId, interests: [], plans: []  });
+    // has the password using argon2 with parameters for security
+    // we use 2^16 memory cost to make it highly resistant to brute force and GPU attacks
+    const hash = await argon2.hash(password, { type: argon2.argon2id, memoryCost: 2 ** 16, timeCost: 2, parallelism: 1 });
+    const newUser = new User({ username: name, email: encryptData(email), password: hash, role, _id: userId, interests: [], plans: []  });
     await newUser.save();
 
     const newProfile = new Profile({
@@ -509,7 +585,8 @@ app.post('/login', async (req, res) => {
 
     if (!foundUser) return res.status(400).send("User was not found");
 
-    const match = await bcrypt.compare(password, foundUser.password);
+    // verifying the password using argon2 to see if it matches the hashed password in the database
+    const match = await argon2.verify(foundUser.password, password);
 
     if (match) {
         createNewToken(foundUser, res); //passwords match
@@ -540,11 +617,12 @@ app.post("/send-message", async (req, res) => {
     }
  
     const senderId = decoded.userId; //this is going to take the users id who sends message from token
- 
+    // encrypts the chat message before it saves to MongoDB
+    // this ensures that even if the databse is compromised the user messages remain confidential
     const newMessage = new Message({
       sender: senderId,
       receiver: receiverIdNum,
-      content
+      content: content
     });
  
     await newMessage.save(); //saves to db
@@ -589,5 +667,4 @@ app.post("/profile", async (req, res) => {
 app.listen(3000, () => {
   console.log('Server running on http://localhost:3000');
 });
-
 
