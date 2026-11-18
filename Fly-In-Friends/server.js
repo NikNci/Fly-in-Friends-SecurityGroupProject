@@ -11,7 +11,7 @@ const cookieParser = require("cookie-parser");
 const app = express();
 const crypto = require("crypto");
 //import AES encryption and decryption functions - Ryan
-const { encryptAES, decryptAES } = require("./aesEncryption");
+
 //import Caesar cipher encryption and decryption - Ryan
 const { encryptCaesar, decryptCaesar } = require("./caesarCipher");
 app.use(express.static("public"));
@@ -23,6 +23,7 @@ require("node:dns/promises").setServers(["1.1.1.1", "8.8.8.8"]);
 const { loadEnvFile } = require("node:process");
 
 loadEnvFile("secretData.env"); 
+const { encryptAES, decryptAES } = require("./aesEncryption");
 
 const EMAIL_KEY = Buffer.from(process.env.CRYPTO_KEY, "hex");
 
