@@ -545,7 +545,8 @@ app.post("/add-listing", async (req, res) => {
       return res.status(400).send("Location not found");
     }
 
-    const token = req.cookies.session;
+    var token = req.cookies.session;
+    token = decryptToken(token);
     const originalDecoded = jwt.decode(token, {complete: true});
     const Uid = originalDecoded.payload.userId;
 
